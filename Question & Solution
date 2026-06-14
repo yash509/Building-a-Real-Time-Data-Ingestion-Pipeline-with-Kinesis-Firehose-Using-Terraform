@@ -1,0 +1,256 @@
+Ques:-
+
+The DevOps team needs to create a data ingestion pipeline using AWS Kinesis Firehose to deliver streaming data into an S3 bucket. 
+The Firehose delivery stream must assume an IAM role using STS, deliver data to an S3 bucket, and add a newline delimiter after each record. 
+Buffering settings should be configured to deliver data either when the buffer reaches 5 MB or after 300 seconds, whichever comes first.
+
+You are required to complete this task using Terraform.
+
+Task Requirements:
+
+1. Create an S3 bucket named datacenter-stream-bucket-12262 using Terraform.
+
+2. Create an IAM role named firehose-sts-role and policy that allows Kinesis Firehose to put objects into the S3 bucket.
+
+3. The Firehose delivery stream must use the IAM role via STS assume role.
+
+4. Use depends_on in the Firehose resource to ensure it waits for the IAM role policy attachment.
+
+5. Create a Firehose delivery stream named datacenter-firehose-stream to deliver data to the S3 bucket.
+
+6. Configure buffering with size 5 MB and interval 300 seconds.
+
+7. Enable record processing by setting the Delimiter parameter to \n to append a newline after each record.
+
+8. Create main.tf file to create a S3 bucket,IAM role and Firehose delivery stream.
+
+9. Use variables.tf file with the following variables:
+
+	-> KKE_S3_BUCKET_NAME: name of the bucket.
+	-> KKE_FIREHOSE_STREAM_NAME: name of the firehose stream.
+	-> KKE_FIREHOSE_ROLE_NAME : name of the firehose role
+
+10. Use outputs.tf file to output the following:
+
+	-> kke_firehose_stream_name: name of the firehose stream created.
+	-> kke_s3_bucket_name: name of the bucket created.
+	-> kke_firehose_role_arn: arn of the created firehose role.
+
+11. Send test data to the Firehose stream and verify that each record in the S3 files ends with a newline character.
+
+
+
+
+Soln:-
+
+Step 1:- Navigate to your Terraform working directory
+
+cd /home/bob/terraform
+
+
+
+Step 2:- Verify the provider.tf file with the following content:
+
+terraform {
+  required_providers {
+    aws = {
+      source = "hashicorp/aws"
+      version = "5.91.0"
+    }
+  }
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  skip_credentials_validation = true
+  skip_requesting_account_id  = true
+  s3_use_path_style = true
+
+endpoints {
+    ec2            = "http://aws:4566"
+    apigateway     = "http://aws:4566"
+    cloudformation = "http://aws:4566"
+    cloudwatch     = "http://aws:4566"
+    dynamodb       = "http://aws:4566"
+    es             = "http://aws:4566"
+    firehose       = "http://aws:4566"
+    iam            = "http://aws:4566"
+    kinesis        = "http://aws:4566"
+    lambda         = "http://aws:4566"
+    route53        = "http://aws:4566"
+    redshift       = "http://aws:4566"
+    s3             = "http://aws:4566"
+    secretsmanager = "http://aws:4566"
+    ses            = "http://aws:4566"
+    sns            = "http://aws:4566"
+    sqs            = "http://aws:4566"
+    ssm            = "http://aws:4566"
+    stepfunctions  = "http://aws:4566"
+    sts            = "http://aws:4566"
+    rds            = "http://aws:4566"
+  }
+}
+
+
+
+Step 3: Create the "main.tf" file
+
+# S3 Bucket
+resource "aws_s3_bucket" "kke_bucket" {
+  bucket = var.KKE_S3_BUCKET_NAME
+}
+
+# IAM Role for Firehose
+resource "aws_iam_role" "firehose_role" {
+  name = var.KKE_FIREHOSE_ROLE_NAME
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action    = "sts:AssumeRole",
+        Effect    = "Allow",
+        Principal = {
+          Service = "firehose.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+# IAM Policy for Firehose to access S3
+resource "aws_iam_policy" "firehose_s3_policy" {
+  name        = "firehose-s3-policy"
+  description = "Policy for Firehose to put objects into S3"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect   = "Allow",
+        Action   = [
+          "s3:PutObject",
+          "s3:PutObjectAcl"
+        ],
+        Resource = "${aws_s3_bucket.kke_bucket.arn}/*"
+      }
+    ]
+  })
+}
+
+# Attach Policy to Role
+resource "aws_iam_role_policy_attachment" "firehose_attach" {
+  role       = aws_iam_role.firehose_role.name
+  policy_arn = aws_iam_policy.firehose_s3_policy.arn
+}
+
+# Firehose Delivery Stream
+resource "aws_kinesis_firehose_delivery_stream" "kke_firehose" {
+  name        = var.KKE_FIREHOSE_STREAM_NAME
+  destination = "extended_s3"
+
+  extended_s3_configuration {
+    role_arn           = aws_iam_role.firehose_role.arn
+    bucket_arn         = aws_s3_bucket.kke_bucket.arn
+    buffering_size     = 5
+    buffering_interval = 300
+    compression_format = "UNCOMPRESSED"
+
+    processing_configuration {
+      enabled = true
+      processors {
+        type = "AppendDelimiterToRecord"
+        parameters {
+          parameter_name  = "Delimiter"
+          parameter_value = "\n"
+        }
+      }
+    }
+  }
+
+  depends_on = [aws_iam_role_policy_attachment.firehose_attach]
+}
+
+
+
+Step 4: Create the "variables.tf" file
+
+variable "KKE_S3_BUCKET_NAME" {
+  description = "Name of the S3 Bucket"
+  type        = string
+}
+
+variable "KKE_FIREHOSE_STREAM_NAME" {
+  description = "Name of the Stream Name"
+  type        = string
+}
+
+variable "KKE_FIREHOSE_ROLE_NAME" {
+  description = "Name of the Firehose Role Name"
+  type        = string
+}
+
+
+
+Step 5: Create the "terraform.tfvars" file
+
+KKE_S3_BUCKET_NAME="datacenter-stream-bucket-12262"
+KKE_FIREHOSE_STREAM_NAME="datacenter-firehose-stream"
+KKE_FIREHOSE_ROLE_NAME="firehose-sts-role"
+
+
+
+Step 7: Create the "outputs.tf" file
+
+output "kke_firehose_stream_name" {
+  value = aws_kinesis_firehose_delivery_stream.kke_firehose.name
+}
+
+output "kke_s3_bucket_name" {
+  value = aws_s3_bucket.kke_bucket.bucket
+}
+
+output "kke_firehose_role_arn" {
+  value = aws_iam_role.firehose_role.arn
+}
+
+
+
+Step 7: Initialize Terraform in the directory
+	
+terraform init
+
+
+
+Step 8: Check the Terraform Directory for the correct syntax
+
+terraform validate
+
+
+
+Step 9:- Plan the configuration in the directory
+
+terraform plan
+
+
+
+Step 10:- Apply the configuration to create the resources
+
+terraform apply --auto-approve
+
+
+
+Step 11: Send test data to Firehose using the below command
+
+aws firehose put-record \
+  --delivery-stream-name datacenter-firehose-stream \
+  --record '{"Data":"Hello World"}'
+
+
+
+Step 12: Check S3 bucket for the data using the below commands
+
+aws s3 ls s3://datacenter-stream-bucket-12262 --recursive
+aws s3 cp s3://datacenter-stream-bucket-12262/<actual-object-key> ./firehose-output.txt
+
+(e.g., :- aws s3 cp s3://datacenter-stream-bucket-12262/2026/06/14/02/datacenter-firehose-stream-2026-06-14-02-28-48-0623aebe-7d9e-40ab-9d7b-c57ebd81d4f5 ./firehose-output.txt)
